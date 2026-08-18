@@ -220,18 +220,34 @@ impl CalendarState {
 
     /// The real signer of this invocation. Never trust a client-supplied id.
     ///
-    /// `device_id()` is the rc.20 successor of `executor_id()`: same bytes (the
-    /// executing key), so member rows and the `owner`/`peers` ids already
-    /// stored in existing calendars keep matching what the frontend reads from
-    /// `/contexts/{id}/identities-owned`. `account_id()` is a DIFFERENT value —
-    /// a hash of the key on an unenrolled node — so keying off it instead would
-    /// orphan every existing event and username.
+    /// The ACCOUNT, not the device. Everything this id is used for is
+    /// ownership — `event.owner`, the `peers` list, the username map, every
+    /// "is the caller allowed to edit this" check — and ownership belongs to a
+    /// person. Keyed by device, the same human who created an event on a
+    /// laptop cannot edit it from a phone, and appears twice in `peers`.
+    ///
+    /// This reverses the rc.20-era note that used to sit here. That note was
+    /// right at the time: rc.20 split account from device and left the legacy
+    /// `executor_id()` shim meaning the device. rc.23 flips the shim to the
+    /// ACCOUNT (core #3510) precisely because reaching for an identity is
+    /// almost always an ownership question, and it also makes the node's own
+    /// group-members listing answer with accounts (#3522) — so a device id
+    /// here would no longer match the member list it is compared against.
+    ///
+    /// The old note's other argument — that changing this orphans stored
+    /// events — does not apply: this app has never published to the registry,
+    /// so there is no deployed calendar whose rows would be stranded.
     fn caller() -> UserId {
-        UserId::new(env::device_id())
+        UserId::new(env::account_id())
     }
 
-    /// Base58 string form of the caller — matches the identity the frontend
-    /// reads from `/contexts/{id}/identities-owned`.
+    /// String form of the caller's ACCOUNT — the member id this calendar
+    /// stores and puts on the wire.
+    ///
+    /// Deliberately NOT the context key the frontend reads from
+    /// `/contexts/{id}/identities-owned`: that is a device key, and since
+    /// rc.23 the node's group-members listing is keyed by account, so this is
+    /// the id a member row can actually be matched against.
     fn caller_id() -> String {
         Self::caller().to_string()
     }
@@ -575,7 +591,7 @@ mod tests {
     #[test]
     fn owner_can_create_and_see_event() {
         let mut app = new_app();
-        let me = UserId::new(app.device_id());
+        let me = UserId::new(app.account_id());
         let id = app.call(|s| s.create_event(event(vec![]), 10)).unwrap();
         let events = app.view(|s| s.get_events()).unwrap();
         assert_eq!(events.len(), 1);
