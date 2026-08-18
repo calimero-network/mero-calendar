@@ -628,9 +628,19 @@ mod tests {
         app.call(|s| s.create_event(event(vec![UserId::new(OTHER)]), 10))
             .unwrap();
         // The invited peer sees it.
-        assert_eq!(app.call_as_account(OTHER, OTHER_DEVICE, |s| s.get_events()).unwrap().len(), 1);
+        assert_eq!(
+            app.call_as_account(OTHER, OTHER_DEVICE, |s| s.get_events())
+                .unwrap()
+                .len(),
+            1
+        );
         // An uninvited identity sees nothing.
-        assert_eq!(app.call_as_account(THIRD, THIRD_DEVICE, |s| s.get_events()).unwrap().len(), 0);
+        assert_eq!(
+            app.call_as_account(THIRD, THIRD_DEVICE, |s| s.get_events())
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
@@ -652,9 +662,15 @@ mod tests {
 
         // A peer (non-owner) cannot edit or delete.
         assert!(app
-            .call_as_account(OTHER, OTHER_DEVICE, |s| s.update_event(id.clone(), patch.clone(), 11))
+            .call_as_account(OTHER, OTHER_DEVICE, |s| s.update_event(
+                id.clone(),
+                patch.clone(),
+                11
+            ))
             .is_err());
-        assert!(app.call_as_account(OTHER, OTHER_DEVICE, |s| s.delete_event(id.clone())).is_err());
+        assert!(app
+            .call_as_account(OTHER, OTHER_DEVICE, |s| s.delete_event(id.clone()))
+            .is_err());
 
         // The owner can.
         app.call(|s| s.update_event(id.clone(), patch, 11)).unwrap();
