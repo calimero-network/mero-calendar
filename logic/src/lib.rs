@@ -533,8 +533,16 @@ mod tests {
 
     use super::*;
 
+    // A second and third PERSON. Both axes move together: `call_as` alone
+    // shifts only the device and leaves the account, which models one person's
+    // second machine — and since `caller()` reads the account, a test using it
+    // for "somebody else" silently asserts nothing. The SDK's own note makes
+    // the point: an app that aggregates per person and one that aggregates per
+    // replica behave identically until the two axes actually disagree.
     const OTHER: [u8; 32] = [0x22; 32];
+    const OTHER_DEVICE: [u8; 32] = [0xA2; 32];
     const THIRD: [u8; 32] = [0x33; 32];
+    const THIRD_DEVICE: [u8; 32] = [0xA3; 32];
 
     fn new_app() -> TestHost<CalendarState> {
         TestHost::new(CalendarState::init)
@@ -581,7 +589,7 @@ mod tests {
     fn members_are_keyed_per_identity() {
         let mut app = new_app();
         app.call(|s| s.set_username("alice".to_owned(), 1)).unwrap();
-        app.call_as(OTHER, |s| s.set_username("bob".to_owned(), 1))
+        app.call_as_account(OTHER, OTHER_DEVICE, |s| s.set_username("bob".to_owned(), 1))
             .unwrap();
         assert_eq!(app.view(|s| s.get_members()).unwrap().len(), 2);
     }
@@ -620,9 +628,9 @@ mod tests {
         app.call(|s| s.create_event(event(vec![UserId::new(OTHER)]), 10))
             .unwrap();
         // The invited peer sees it.
-        assert_eq!(app.call_as(OTHER, |s| s.get_events()).unwrap().len(), 1);
+        assert_eq!(app.call_as_account(OTHER, OTHER_DEVICE, |s| s.get_events()).unwrap().len(), 1);
         // An uninvited identity sees nothing.
-        assert_eq!(app.call_as(THIRD, |s| s.get_events()).unwrap().len(), 0);
+        assert_eq!(app.call_as_account(THIRD, THIRD_DEVICE, |s| s.get_events()).unwrap().len(), 0);
     }
 
     #[test]
@@ -644,9 +652,9 @@ mod tests {
 
         // A peer (non-owner) cannot edit or delete.
         assert!(app
-            .call_as(OTHER, |s| s.update_event(id.clone(), patch.clone(), 11))
+            .call_as_account(OTHER, OTHER_DEVICE, |s| s.update_event(id.clone(), patch.clone(), 11))
             .is_err());
-        assert!(app.call_as(OTHER, |s| s.delete_event(id.clone())).is_err());
+        assert!(app.call_as_account(OTHER, OTHER_DEVICE, |s| s.delete_event(id.clone())).is_err());
 
         // The owner can.
         app.call(|s| s.update_event(id.clone(), patch, 11)).unwrap();
