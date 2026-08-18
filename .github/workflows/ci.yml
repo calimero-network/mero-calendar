@@ -105,6 +105,50 @@ jobs:
           path: app/e2e-report/
           retention-days: 7
 
+  # Deliberately its own job, not extra steps on `rust`: fmt and clippy need no
+  # wasm target, no cargo-mero and no SDK build beyond a check, so they report in
+  # about a minute instead of being buried behind a full wasm-opt release build.
+  # Nothing was gating either one before, which is how two clippy lints sat in
+  # the tree unnoticed.
+  rust-lint:
+    name: Rust (fmt + clippy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          # Keep equal to `channel` in logic/rust-toolchain.toml. The components
+          # must be listed here as well: with an explicit `toolchain:` this action
+          # installs exactly what it is told, so it does NOT pick up the
+          # `components` line from the toolchain file, and clippy/rustfmt would be
+          # missing at the step that needs them.
+          toolchain: "1.89.0"
+          components: rustfmt, clippy
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            logic/target
+          key: cargo-lint-${{ runner.os }}-${{ hashFiles('logic/Cargo.lock') }}
+          restore-keys: cargo-lint-${{ runner.os }}-
+
+      - name: Formatting
+        working-directory: logic
+        run: cargo fmt --all --check
+
+      # `--all-targets` so the tests are linted too, and `-D warnings` so a lint
+      # is a failure rather than a line nobody reads in a green log — the whole
+      # point of adding this. Lints run against the HOST target: clippy needs to
+      # type-check, and the wasm32 build of this crate is a strict subset, so a
+      # host run sees everything a wasm run would plus the test code.
+      - name: Clippy
+        working-directory: logic
+        run: cargo clippy --all-targets -- -D warnings
+
   rust:
     name: Rust (contract tests + WASM build)
     runs-on: ubuntu-latest
@@ -149,8 +193,16 @@ jobs:
         working-directory: logic
         run: cargo mero build
 
+      # abi.json and state-schema.json ride along because `cargo mero build`
+      # emits them next to the wasm and they are what makes a build reviewable:
+      # an ABI diff is the readable form of "did this change break callers", and
+      # a state-schema diff is the readable form of "does this need the state
+      # recreated". Neither is reconstructible from the wasm without the tool.
       - uses: actions/upload-artifact@v4
         with:
           name: contract-wasm
-          path: logic/res/merocalendar.wasm
+          path: |
+            logic/res/merocalendar.wasm
+            logic/res/abi.json
+            logic/res/state-schema.json
           retention-days: 7

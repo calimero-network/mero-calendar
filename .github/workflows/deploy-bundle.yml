@@ -221,13 +221,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Pinned to the SAME toolchain the CI workflows use, not `@stable`. There
-      # is no logic/rust-toolchain.toml in this repo to make rustup agree on its
-      # own, so `@stable` would sign a bundle built by whatever compiler the
-      # runner image happened to ship that week — a build the gating jobs never
-      # ran. Keep this equal to the `toolchain:` in ci.yml / workflow-tests.yml /
-      # integration-ci.yml (or delete all four in favour of a checked-in
-      # rust-toolchain.toml).
+      # Pinned explicitly, not `@stable`: `@stable` would sign a bundle built by
+      # whatever compiler the runner image shipped that week — a build the gating
+      # jobs never ran. This must stay equal to `channel` in
+      # logic/rust-toolchain.toml and to the `toolchain:` in ci.yml /
+      # workflow-tests.yml / integration-ci.yml. rustup honours the toolchain
+      # file once cargo runs inside logic/, so a mismatch here does not fail
+      # loudly — it just makes this action download a toolchain that is then
+      # ignored, and the only symptom is a slower job.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
