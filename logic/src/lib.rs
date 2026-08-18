@@ -13,6 +13,7 @@
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use calimero_sdk::abi::AbiType;
 use calimero_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use calimero_sdk::serde::{Deserialize, Serialize};
 use calimero_sdk::{app, env};
@@ -41,7 +42,7 @@ pub enum Event {
 /// public key (matches the identity the frontend reads from
 /// `/contexts/{id}/identities-owned`), so the UI can resolve `owner`/`peers`
 /// public keys to names.
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize, AbiType)]
 #[borsh(crate = "calimero_sdk::borsh")]
 #[serde(crate = "calimero_sdk::serde")]
 #[serde(rename_all = "camelCase")]
@@ -75,7 +76,7 @@ impl MergeableTrait for Member {
 
 // ── Shared event state (synced) ───────────────────────────────────────────────
 
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize, AbiType)]
 #[borsh(crate = "calimero_sdk::borsh")]
 #[serde(crate = "calimero_sdk::serde")]
 pub struct CalendarEventState {
@@ -153,7 +154,7 @@ impl Default for PrivateCalendar {
 
 /// A calendar event as returned to the frontend. `private` distinguishes
 /// node-local entries from shared ones so the UI can render them uniformly.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, AbiType)]
 #[serde(crate = "calimero_sdk::serde")]
 pub struct CalendarEvent {
     pub id: String,
@@ -168,7 +169,7 @@ pub struct CalendarEvent {
     pub private: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, AbiType)]
 #[serde(crate = "calimero_sdk::serde")]
 pub struct CreateCalendarEvent {
     pub title: String,
@@ -181,7 +182,7 @@ pub struct CreateCalendarEvent {
     pub peers: Vec<UserId>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, AbiType)]
 #[serde(crate = "calimero_sdk::serde")]
 pub struct UpdateCalendarEvent {
     pub title: Option<String>,
@@ -218,8 +219,15 @@ impl CalendarState {
     // ── Identity helpers ──────────────────────────────────────────────────────
 
     /// The real signer of this invocation. Never trust a client-supplied id.
+    ///
+    /// `device_id()` is the rc.20 successor of `executor_id()`: same bytes (the
+    /// executing key), so member rows and the `owner`/`peers` ids already
+    /// stored in existing calendars keep matching what the frontend reads from
+    /// `/contexts/{id}/identities-owned`. `account_id()` is a DIFFERENT value —
+    /// a hash of the key on an unenrolled node — so keying off it instead would
+    /// orphan every existing event and username.
     fn caller() -> UserId {
-        UserId::new(env::executor_id())
+        UserId::new(env::device_id())
     }
 
     /// Base58 string form of the caller — matches the identity the frontend
@@ -273,12 +281,12 @@ impl CalendarState {
     // ── Shared events ─────────────────────────────────────────────────────────
 
     pub fn get_events(&self) -> app::Result<Vec<CalendarEvent>> {
-        let executor_id = Self::caller();
+        let caller = Self::caller();
 
         let mut events = Vec::new();
         for (id, event) in self.events.entries()? {
             // Only surface events the caller owns or is invited to.
-            if event.owner != executor_id && !event.peers.contains(&executor_id) {
+            if event.owner != caller && !event.peers.contains(&caller) {
                 continue;
             }
             events.push(CalendarEvent {
@@ -306,12 +314,12 @@ impl CalendarState {
         app::log!("Creating calendar event {:?}", event_data);
 
         let id = self.generate_id();
-        let executor_id = Self::caller();
+        let caller = Self::caller();
 
         let event = CalendarEventState {
             title: event_data.title,
             description: event_data.description,
-            owner: executor_id,
+            owner: caller,
             start: event_data.start,
             end: event_data.end,
             event_type: event_data.event_type,
@@ -539,7 +547,8 @@ mod tests {
         assert_eq!(members[0].username, "alice");
 
         // Rename does not create a second member; it bumps the LWW clock.
-        app.call(|s| s.set_username("alice2".to_owned(), 2)).unwrap();
+        app.call(|s| s.set_username("alice2".to_owned(), 2))
+            .unwrap();
         let members = app.view(|s| s.get_members()).unwrap();
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].username, "alice2");
@@ -566,7 +575,7 @@ mod tests {
     #[test]
     fn owner_can_create_and_see_event() {
         let mut app = new_app();
-        let me = UserId::new(app.executor_id());
+        let me = UserId::new(app.device_id());
         let id = app.call(|s| s.create_event(event(vec![]), 10)).unwrap();
         let events = app.view(|s| s.get_events()).unwrap();
         assert_eq!(events.len(), 1);
@@ -603,7 +612,9 @@ mod tests {
     #[test]
     fn only_owner_can_update_or_delete() {
         let mut app = new_app();
-        let id = app.call(|s| s.create_event(event(vec![UserId::new(OTHER)]), 10)).unwrap();
+        let id = app
+            .call(|s| s.create_event(event(vec![UserId::new(OTHER)]), 10))
+            .unwrap();
 
         let patch = UpdateCalendarEvent {
             title: Some("Renamed".to_owned()),
