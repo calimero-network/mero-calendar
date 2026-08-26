@@ -61,16 +61,17 @@ function readTauriHashContext() {
 
   if (applicationId) setApplicationId(applicationId);
 
-  // Deep-link straight into the shared calendar when the desktop told us which
-  // context to open. "t" is a placeholder teamId — CalendarPage only needs
-  // contextId; teamId only drives the Back button.
+  // Deep-link into the specific project/calendar when the desktop said which to
+  // open ("t" is a placeholder teamId — only the Back button uses it).
   //
-  // The hash is PRESERVED across this rewrite: MeroProvider has not read it yet
-  // and it is the only copy of the auth callback. It strips the hash itself once
-  // it has consumed it.
-  if (contextId) {
-    window.history.replaceState({}, "", `/teams/t/calendar/${contextId}${hash}`);
-  }
+  // Always land on the app's own route, exactly as before — the desktop opens
+  // this window at `/`, and without this the user sits on the landing route.
+  //
+  // The hash is APPENDED, not dropped: MeroProvider has not read it yet and it
+  // is the only copy of the auth callback. It strips the hash itself once it has
+  // consumed it, which is what leaves the address bar clean.
+  const target = contextId ? `/teams/t/calendar/${contextId}` : "/teams";
+  window.history.replaceState({}, "", `${target}${hash}`);
 }
 
 // mero-react ≥4.1 REJECTS SSO tokens whose node_url is not explicitly trusted
